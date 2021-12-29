@@ -2,10 +2,6 @@ package rlog
 
 // Interface that a replicated log library must provide.
 
-import (
-	"fmt"
-)
-
 type LogEntry = []byte
 type Error = uint64
 
