@@ -96,3 +96,11 @@ func (t *TruncatedLog) clone() *TruncatedLog {
 	copy(newlog, t.log)
 	return &TruncatedLog{firstIndex:t.firstIndex, log:newlog}
 }
+
+func MakeTruncatedLog() *TruncatedLog {
+	t := new(TruncatedLog)
+	t.firstIndex = 0
+	t.log = make([]LogEntryCn, 1)
+	t.log[0] = LogEntryCn{e:nil, cn:0}
+	return t
+}

@@ -14,15 +14,12 @@ type ReplicaServer struct {
 	mu *sync.Mutex
 
 	cn         uint64
-	tlog       TruncatedLog
+	tlog       *TruncatedLog
 	acceptedCn uint64 // XXX: needed for UpdateCommitIndex()
 	// Strictly speaking, a bool is enough, but this makes the code simpler.
 	// With a bool, we'd have to invalidate in any place cn might increase.
 	// With this, we're being conservative and it'll automatically become
 	// invalid when cn increases.
-
-	commitIndex uint64
-	applyCond  *sync.Cond
 
 	p *PrimaryServer
 	l *LearnerServer
@@ -66,14 +63,14 @@ func (s *ReplicaServer) GetLogEntry(index uint64, e *LogEntry) Error {
 	s.mu.Lock()
 	defer s.mu.Lock()
 
-	for index > s.commitIndex && index >= s.tlog.firstIndex {
-		s.applyCond.Wait()
+	for index > s.l.commitIndex && index >= s.tlog.firstIndex {
+		s.l.cond.Wait()
 	}
 
 	if index < s.tlog.firstIndex {
 		return ETruncated
 	}
-	*e = s.tlog.lookupIndex(s.commitIndex).e
+	*e = s.tlog.lookupIndex(s.l.commitIndex).e
 	return ENone
 }
 
@@ -108,9 +105,15 @@ func (s *ReplicaServer) BecomePrimary(conf *PBConfiguration) {
 }
 
 func MakeReplicaServer() *ReplicaServer {
-	return nil
+	s := new(ReplicaServer)
+	s.mu = new(sync.Mutex)
+	s.cn = 0
+	s.tlog = MakeTruncatedLog()
+
+	s.p = nil
+	s.l = MakeLearnerServer(s.cn, sync.NewCond(s.mu))
+	return s
 }
 
 func (s *ReplicaServer) Start(h uint64) {
-
 }

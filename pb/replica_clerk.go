@@ -16,6 +16,10 @@ func MakeReplicaClerk(host grove_ffi.Address) *ReplicaClerk {
 	return nil // FIXME: impl
 }
 
+func (ck *ReplicaClerk) AppendLogOneSided(args *AppendLogArgs) {
+	// FIXME: impl
+}
+
 func (ck *ReplicaClerk) AppendLog(args *AppendLogArgs, reply *AppendLogReply) {
 	args_raw := EncodeAppendLogArgs(args)
 	raw_reply := new([]byte)

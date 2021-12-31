@@ -4,8 +4,6 @@ import (
 	"sync"
 )
 
-// TODO: review
-
 type PrimaryServer struct {
 	cn   uint64
 	tlog *TruncatedLog
@@ -21,7 +19,13 @@ type LogID struct {
 
 func (s *PrimaryServer) TryAppend(e LogEntry) LogID {
 	index := s.tlog.append(e, s.cn)
-	// FIXME: broadcast one-way AppendLog() RPCs to replicas
+	for _, ck := range s.replicaClerks {
+		ck := ck
+		// FIXME: impl
+		go func () {
+			ck.AppendLogOneSided(nil)
+		}()
+	}
 	return LogID{index: index, cn: s.cn}
 }
 
@@ -44,21 +48,24 @@ func MakePrimaryServer(tlog *TruncatedLog, conf *PBConfiguration) *PrimaryServer
 		s.replicaClerks[i] = MakeReplicaClerk(host)
 		s.nextIndex[i] = tlog.highestIndex()
 	}
-	go s.PrimaryThread()
 	return s
 }
 
+// XXX: This is a bad abstraction.
+// This is really two things in one: a PrimaryLearnerServer that gets accepted
+// witnesses, and a (Follower)LearnerServer that just finds out about ever
+// increasing commitIndex values.
 type LearnerServer struct {
-	cn          uint64
-	matchIndex  []uint64
-	commitIndex uint64
-	cond        *sync.Cond
+	cn            uint64
+	acceptedIndex []uint64
+	commitIndex   uint64
+	cond          *sync.Cond
 }
 
 func MakeLearnerServer(cn uint64, cond *sync.Cond) *LearnerServer {
 	s := new(LearnerServer)
 	s.cn = cn
-	s.matchIndex = nil
+	s.acceptedIndex = nil
 	s.commitIndex = 0
 	s.cond = cond
 	return s
@@ -76,9 +83,9 @@ func min(l []uint64) uint64 {
 
 func (s *LearnerServer) postAppendLog(rid uint64, r *AppendLogReply) {
 	if r.Success {
-		if r.LastIndex > s.matchIndex[rid] {
-			s.matchIndex[rid] = r.LastIndex
-			newCommitIndex := min(s.matchIndex)
+		if r.LastIndex > s.acceptedIndex[rid] {
+			s.acceptedIndex[rid] = r.LastIndex
+			newCommitIndex := min(s.acceptedIndex)
 			if newCommitIndex > s.commitIndex {
 				s.commitIndex = newCommitIndex
 				s.cond.Signal()
@@ -88,8 +95,8 @@ func (s *LearnerServer) postAppendLog(rid uint64, r *AppendLogReply) {
 }
 
 func (s *LearnerServer) MakePrimaryLearner(conf *PBConfiguration) {
-	s.matchIndex = make([]uint64, len(conf.replicas))
-	for i, _ := range s.matchIndex {
-		s.matchIndex[i] = 0
+	s.acceptedIndex = make([]uint64, len(conf.replicas))
+	for i, _ := range s.acceptedIndex {
+		s.acceptedIndex[i] = 0
 	}
 }
