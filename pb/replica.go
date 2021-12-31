@@ -1,101 +1,31 @@
 package pb
 
 import (
+	"github.com/mit-pdos/gokv/grove_ffi"
 	"sync"
 )
 
-type LogEntryCn struct {
-	e  LogEntry
-	cn uint64
-}
-
-type TruncatedLog struct {
-	firstIndex uint64
-	log        []LogEntryCn
-}
-
-func max(a, b uint64) uint64 {
-	if a > b {
-		return a
-	}
-	return b
-}
-
-func (t *TruncatedLog) highestIndex() uint64 {
-	return t.firstIndex + uint64(len(t.log)) - 1
-}
-
-// requires: t.firstIndex <= j <= t.highestIndex()
-func (t *TruncatedLog) lookupIndex(j uint64) LogEntryCn {
-	return t.log[j-t.firstIndex]
-}
-
-// requires: t.firstIndex <= j <= t.highestIndex()
-// returns the log from index j (inclusive) up to the end of `t`
-func (t *TruncatedLog) tailFrom(index uint64) []LogEntryCn {
-	return t.log[index-t.firstIndex:]
-}
-
-// requires: t.firstIndex <= j <= t.highestIndex()
-// returns the log from index firstIndex up to index j (exclusive)
-func (t *TruncatedLog) subseqTo(index uint64) []LogEntryCn {
-	return t.log[:index-t.firstIndex]
-}
-
-func (t *TruncatedLog) truncate(index uint64) {
-	t.log = t.tailFrom(index)
-	t.firstIndex = index
-}
-
-// requires:
-// own_TruncatedLog t l
-// (exists cn', cn' <= cn && accepted(cn', me, l))
-// proposal_lb(cn, l')
-// ensures:
-// own_TruncatedLog t l || own_TruncatedLog t l' && accepted(cn, me, l')
-//
-// There's basically two separate proofs for this: one for when cn' == cn, and
-// one for when cn' < cn.
-func (t *TruncatedLog) tryAppend(a TruncatedLog) bool {
-	if t.firstIndex > a.highestIndex() {
-		return false // tlog contains entries strictly after `entries`
-	}
-
-	if a.firstIndex > t.highestIndex() {
-		return false // `entries` contains entries strictly after tlog
-	}
-
-	// at this point, t.log and `entries` have some overlap. Let's check if the
-	// lowest index that they both contain matches
-	indexToCheck := max(t.firstIndex, a.firstIndex)
-
-	if a.lookupIndex(indexToCheck).cn != t.lookupIndex(indexToCheck).cn {
-		return false // didn't match
-	}
-
-	j := indexToCheck + 1
-
-	for j < a.highestIndex() {
-		if j > t.highestIndex() {
-			// `entries` has more log entries than t.log
-			t.log = append(t.log, t.tailFrom(j)...)
-		}
-		if t.lookupIndex(j).cn != t.lookupIndex(j).cn {
-			// overwrite t.log
-			t.log = append(t.subseqTo(j), a.tailFrom(j)...)
-		}
-	}
-	return true
+type PBConfiguration struct {
+	cn       uint64
+	replicas []grove_ffi.Address
 }
 
 type ReplicaServer struct {
 	mu *sync.Mutex
 
-	cn   uint64
-	tlog TruncatedLog
+	cn         uint64
+	tlog       TruncatedLog
+	acceptedCn uint64 // XXX: needed for UpdateCommitIndex()
+	// Strictly speaking, a bool is enough, but this makes the code simpler.
+	// With a bool, we'd have to invalidate in any place cn might increase.
+	// With this, we're being conservative and it'll automatically become
+	// invalid when cn increases.
 
-	commitIndex  uint64
-	appliedIndex uint64
+	commitIndex uint64
+	applyCond  *sync.Cond
+
+	p *PrimaryServer
+	l *LearnerServer
 }
 
 func (s *ReplicaServer) TruncateLog(Index uint64) {
@@ -116,26 +46,71 @@ func (s *ReplicaServer) AppendLog(args *AppendLogArgs, reply *AppendLogReply) {
 		return
 	}
 
+	s.cn = args.Cn // might enter new conf *without* accepting anything
+
 	reply.Success = s.tlog.tryAppend(args.tlog)
-
-	// XXX: this would make the mutex invariant simpler, but is not necessary
-	// for correctness
-	// if reply.Success {
-	// s.cn = args.Cn
-	// }
-
+	if reply.Success {
+		s.acceptedCn = args.Cn
+	}
 	reply.LastIndex = s.tlog.highestIndex()
+	reply.Cn = s.cn
 }
 
-func (s *ReplicaServer) GetNextLogEntry() LogEntry {
+const (
+	ENone       = uint64(0)
+	ETruncated  = uint64(1)
+	ENotPrimary = uint64(2)
+)
+
+func (s *ReplicaServer) GetLogEntry(index uint64, e *LogEntry) Error {
 	s.mu.Lock()
 	defer s.mu.Lock()
 
-	for s.appliedIndex > s.commitIndex {
-		// s.commit_cond.Wait()
+	for index > s.commitIndex && index >= s.tlog.firstIndex {
+		s.applyCond.Wait()
 	}
 
-	ret := s.tlog.lookupIndex(s.commitIndex).e
-	s.commitIndex += 1
-	return ret
+	if index < s.tlog.firstIndex {
+		return ETruncated
+	}
+	*e = s.tlog.lookupIndex(s.commitIndex).e
+	return ENone
+}
+
+func (s *ReplicaServer) TryAppend(e LogEntry) (Error, LogID) {
+	s.mu.Lock()
+	defer s.mu.Lock()
+	if s.p == nil {
+		return ENotPrimary, LogID{}
+	} else {
+		return ENone, s.p.TryAppend(e)
+	}
+}
+
+func (s *ReplicaServer) UpdateCommitIndex(cn uint64, index uint64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if cn <= s.acceptedCn {
+		if index > s.l.commitIndex {
+			s.l.commitIndex = index
+		}
+	}
+}
+
+func (s *ReplicaServer) BecomePrimary(conf *PBConfiguration) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cn >= conf.cn {
+		return
+	}
+	s.p = MakePrimaryServer(s.tlog.clone(), conf)
+	s.l.MakePrimaryLearner(conf)
+}
+
+func MakeReplicaServer() *ReplicaServer {
+	return nil
+}
+
+func (s *ReplicaServer) Start(h uint64) {
+
 }

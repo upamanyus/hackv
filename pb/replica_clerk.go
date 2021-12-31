@@ -2,6 +2,7 @@ package pb
 
 import (
 	"github.com/mit-pdos/gokv/urpc/rpc"
+	"github.com/mit-pdos/gokv/grove_ffi"
 )
 
 type ReplicaClerk struct {
@@ -10,6 +11,10 @@ type ReplicaClerk struct {
 }
 
 // ReplicaClerk implements ReplicaServerRPCs
+
+func MakeReplicaClerk(host grove_ffi.Address) *ReplicaClerk {
+	return nil // FIXME: impl
+}
 
 func (ck *ReplicaClerk) AppendLog(args *AppendLogArgs, reply *AppendLogReply) {
 	args_raw := EncodeAppendLogArgs(args)

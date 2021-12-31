@@ -1,0 +1,95 @@
+package pb
+
+import (
+	"sync"
+)
+
+// TODO: review
+
+type PrimaryServer struct {
+	cn   uint64
+	tlog *TruncatedLog
+
+	replicaClerks []*ReplicaClerk
+	nextIndex     []uint64
+}
+
+type LogID struct {
+	index uint64
+	cn    uint64
+}
+
+func (s *PrimaryServer) TryAppend(e LogEntry) LogID {
+	index := s.tlog.append(e, s.cn)
+	// FIXME: broadcast one-way AppendLog() RPCs to replicas
+	return LogID{index: index, cn: s.cn}
+}
+
+func (s *PrimaryServer) postAppendLog(rid uint64, r *AppendLogReply) {
+	if r.Success {
+		s.nextIndex[rid] = r.LastIndex + 1
+	} else {
+		s.nextIndex[rid] = r.LastIndex
+	}
+}
+
+// Takes over ownership of tlog
+func MakePrimaryServer(tlog *TruncatedLog, conf *PBConfiguration) *PrimaryServer {
+	s := new(PrimaryServer)
+	s.tlog = tlog
+	s.cn = conf.cn
+	s.replicaClerks = make([]*ReplicaClerk, len(conf.replicas)-1)
+	s.nextIndex = make([]uint64, len(conf.replicas)-1)
+	for i, host := range conf.replicas[1:] {
+		s.replicaClerks[i] = MakeReplicaClerk(host)
+		s.nextIndex[i] = tlog.highestIndex()
+	}
+	go s.PrimaryThread()
+	return s
+}
+
+type LearnerServer struct {
+	cn          uint64
+	matchIndex  []uint64
+	commitIndex uint64
+	cond        *sync.Cond
+}
+
+func MakeLearnerServer(cn uint64, cond *sync.Cond) *LearnerServer {
+	s := new(LearnerServer)
+	s.cn = cn
+	s.matchIndex = nil
+	s.commitIndex = 0
+	s.cond = cond
+	return s
+}
+
+func min(l []uint64) uint64 {
+	var m uint64 = uint64(18446744073709551615)
+	for _, v := range l {
+		if v < m {
+			m = v
+		}
+	}
+	return m
+}
+
+func (s *LearnerServer) postAppendLog(rid uint64, r *AppendLogReply) {
+	if r.Success {
+		if r.LastIndex > s.matchIndex[rid] {
+			s.matchIndex[rid] = r.LastIndex
+			newCommitIndex := min(s.matchIndex)
+			if newCommitIndex > s.commitIndex {
+				s.commitIndex = newCommitIndex
+				s.cond.Signal()
+			}
+		}
+	}
+}
+
+func (s *LearnerServer) MakePrimaryLearner(conf *PBConfiguration) {
+	s.matchIndex = make([]uint64, len(conf.replicas))
+	for i, _ := range s.matchIndex {
+		s.matchIndex[i] = 0
+	}
+}

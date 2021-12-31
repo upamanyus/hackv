@@ -1,0 +1,11 @@
+= Primary/backup log replication system.
+Start a ReplicaServer on a chosen HostName (i.e. IP+TCP port) with .Start(hostname)
+Add a replica server to the system with controller.AddServerRPC(replicaHostname)
+Get a log entry with ReplicaServer.GetNextLogEntry(index)
+Trim log with ReplicaServer.LogTruncate(index); keeps only `index` and higher
+Attempt to append to log with `id := ReplicaServer.TryAppend(entry)`.
+  Must make sure id matches to be sure that the operation is the one we wanted.
+Can send ReplicaServer.HeartbeatRPC to check if server is alive
+Invoke ReplicaServer.BecomePrimary(cn, conf) to make a server the primary for
+the given configuration numbre and configuration. The replica must have been a
+part of the preceding configuration.

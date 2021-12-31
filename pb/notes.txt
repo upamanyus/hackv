@@ -100,3 +100,16 @@ to clear out the log, so it can keep making progress.
 
 Also could make it "cancellable": GetNextLogEntry() could be told to stop
 running if a snapshot goes past that entry.
+================================================================================
+Problem with entering new cn without accepting (and without acceptedCn state):
+
+Can't do updateCommitIndex() safely.
+Imagine an AppendLog+UpdateCommit RPC bundle for which AppendLog fails because
+it has too small a prefix. Then, we cannot update commit index safely.
+================================================================================
+What's the strategy for sending AppendLogRPCs?
+
+Option a: TryAppend() will immediately send RPCs to backups.
+That would require batching to be done above the ReplicaServer layer.
+
+After a PostAppendRPC, we can see if we should send another RPC.
