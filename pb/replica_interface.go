@@ -3,16 +3,14 @@ package pb
 type LogEntry = []byte
 
 const (
-	REPLICA_APPEND = uint64(1)
-	REPLICA_UPDATECOMMIT = uint64(2)
+	REPLICA_APPEND        = uint64(1)
+	REPLICA_UPDATECOMMIT  = uint64(2)
 	REPLICA_BECOMEPRIMARY = uint64(3)
 )
 
 type AppendLogArgs struct {
-	Entries   []LogEntry
-	PrevIndex uint64
-	PrevCn    uint64
-	Cn        uint64
+	tlog TruncatedLog
+	Cn   uint64
 }
 
 type AppendLogReply struct {

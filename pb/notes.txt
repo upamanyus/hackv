@@ -1,0 +1,102 @@
+TruncatedLog:
+-- Q: keep prev entry in log or not?
+Option a: Keep prevIndex and prevCn as part of truncated log.
+Option b: Don't keep them, and ensure that the "previous" entry is the first
+entry in the truncated log. So, the log can never be empty other than initially.
+Maybe even initially, we should put a dummy (0, 0) entry for simplicity.
+
+(b) seems simpler.
+
+(a) means that the log can be totally empty when a snapshot is taken and there
+are no operations in progress. (b), on the other hand, will require at least one
+log entry no matter what. So, for instance, the append-only log file will always
+contain some data, which will waste as many disk blocks as it takes to store the
+last operation. Seems not a big deal. Can optimize that later if it matters.
+-- End aside.
+
+We will never compare two different LogEntry (i.e. []byte) objects. The
+(index,cn) pair is how we check if two log positions are the same.
+
+TryAppend(Entries []LogEntryCn)
+
+================================================================================
+It's possible that a replica enters a new CN but doesn't accept anything in this
+new CN. In that case, a future AppendLogRPC is allowed to overwrite the
+replica's log.
+
+This complicates reasoning: the replica's mutex invariant does not simply say
+that the replica accepted its log in its configuration number. It would have to say,
+"accepted(cn, log) \/ exists cn', cn' < cn /\ accepted(cn', log) /\ accepted(cn, [])".
+
+To avoid this non-determinism in the mutex invariant:
+a: don't enter a new CN until we accept something; if there were leader election
+as part of the protocol, this might be impossible.
+b: keep track of an "acceptedCn", which is the Cn in which we last accepted something.
+If we get an AppendLogRPC() for a larger cn, we could blindly accept it (modulo
+match checking for truncation).
+================================================================================
+Snapshotting+state transfer:
+
+Application calls GetNextLogEntry() repeatedly to update the state machine.
+Only take snapshots of things that have been committed.
+
+In the case of primary/backup replication, if op is committed, then it's
+been accepted by everyone. Then, no one will need to see that op again. They
+have it in their logs. So, a "live" replica will never need to do state transfer.
+
+The only time state transfer might be necessary is if a replica becomes
+unavailable, gets kicked out, and the system commits stuff beyond what the
+replica knows about. That's the *only* reason to keep the (applied part of the)
+log around.
+
+Whenever the application wants to, it can call `replicaServer.truncate(i)` for i
+less than what it has applied.
+
+Goal: allow for whatever snapshotting "policy" on top of replicated log interface.
+E.g. bringing a replica up to date and ensuring that the primary keeps enough
+log entries to catch up after snapshot should be done at this level.
+================================================================================
+Adding a new replica to the system:
+
+If the replica has no (old) state, then start by doing state transfer from
+existing replicas to get somewhat up to date.
+
+New replica talks to primary to become part of the configuration as a "ghost"
+member.
+This tells the primary's snapshotting layer to keep track of the committed index of
+the ghost member, and to ensure that we don't truncate past it.
+================================================================================
+Though it's not necessary for primary/backup, how would we design state-transfer?
+
+The challenge is in the interaction between ReplicaServer's appliedIndex and the
+application state.
+
+As with many things, the fact that state-transfer is not necessary will probably
+be a liveness property. That is, if we got into a system-state where
+state-transfer were necessary, then the system wouldn't produce wrong output,
+but it (specifically the far-behind replica) might be unable to make progress.
+
+Example:
+Replica receives an AppendLog(); the AppendLog() has entries that are too new.
+The leader realizes it must do state-transfer in order to get replica up-to-date.
+Ideally, state-transfer would be entirely at the application level.
+The problem is that the application would then need to tell the ReplicaServer to
+update its appliedIndex.
+
+One idea is to have state transfer pass through the ReplicaServer. The problem
+with this is that it bakes in a state-transfer mechanism into the pb library.
+State transfer might be done in lots of different ways, and it shouldn't matter
+how it's done (e.g. someone walks over with a USB drive and copies data!)
+
+Another idea is to add an explicit call like ReplicaServer.UpdateAppliedIndex().
+Then, the thread that completes the state-transfer could call
+UpdateAppliedIndex() so that the apply thread doesn't get old entries. But since
+this is happening concurrently, unclear how to make this correct.
+
+Another idea is to get rid of ReplicaServer.appliedIndex entirely, and require
+GetNextLogEntry() to take an index as input. GetNextLogEntry could keep track of
+the log. When state-transfer completes, the replica just calls Truncate(index)
+to clear out the log, so it can keep making progress.
+
+Also could make it "cancellable": GetNextLogEntry() could be told to stop
+running if a snapshot goes past that entry.
