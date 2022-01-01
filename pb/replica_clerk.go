@@ -1,23 +1,18 @@
 package pb
 
 import (
-	"github.com/mit-pdos/gokv/urpc/rpc"
+	"github.com/upamanyus/hackv/urpc/rpc"
 	"github.com/mit-pdos/gokv/grove_ffi"
 )
 
 type ReplicaClerk struct {
 	cl *rpc.RPCClient
-	conf []rpc.HostName
 }
-
-// ReplicaClerk implements ReplicaServerRPCs
 
 func MakeReplicaClerk(host grove_ffi.Address) *ReplicaClerk {
-	return nil // FIXME: impl
-}
-
-func (ck *ReplicaClerk) AppendLogOneSided(args *AppendLogArgs) {
-	// FIXME: impl
+	return &ReplicaClerk{
+		cl:rpc.MakeRPCClient(host),
+	}
 }
 
 func (ck *ReplicaClerk) AppendLog(args *AppendLogArgs, reply *AppendLogReply) {

@@ -1,0 +1,6 @@
+TODOs:
+* 1-way RPCs
+  - Ability to send back RPC to caller
+* Client decides if RPC runs in separate goroutine?
+* RPC Batching: send multiple RPCs to a destination with a single write syscall
+  Will make a difference for AppendLog+UpdateCommitIndex, etc.

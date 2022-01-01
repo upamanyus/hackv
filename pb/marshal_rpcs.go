@@ -32,6 +32,6 @@ func EncodeBecomePrimaryArgs(args *BecomePrimaryArgs) []byte {
 	return nil // TODO: impl
 }
 
-func DecodeBecomePrimaryArg(data []byte, args *BecomePrimaryArgs) {
+func DecodeBecomePrimaryArgs(data []byte, args *BecomePrimaryArgs) {
 	args = nil // TODO: impl
 }

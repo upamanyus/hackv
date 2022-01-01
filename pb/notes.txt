@@ -113,3 +113,11 @@ Option a: TryAppend() will immediately send RPCs to backups.
 That would require batching to be done above the ReplicaServer layer.
 
 After a PostAppendRPC, we can see if we should send another RPC.
+================================================================================
+Gave up on trying to write code with Primary/Learner abstractions for now.
+* Causes duplicate state.
+  - e.g. (backup) replicas have commitIndex that is updated when the primary
+    (learner) tells them to update. Meanwhile, primary has a learner that
+    actually uses the do_commit lemma and updates its own commitIndex.
+* Would probably want pointers between all the different things. In a disaggregated
+  implementation, learner would have to talk to replicas, etc.

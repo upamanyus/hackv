@@ -9,7 +9,7 @@ const (
 )
 
 type AppendLogArgs struct {
-	tlog TruncatedLog
+	Tlog *TruncatedLog
 	Cn   uint64
 }
 
@@ -25,8 +25,7 @@ type UpdateCommitIndexArgs struct {
 }
 
 type BecomePrimaryArgs struct {
-	Cn       uint64
-	Replicas []string // all of the replicas, in which we are the first
+	Conf PBConfiguration
 }
 
 type ReplicaServerRPCs interface {

@@ -59,7 +59,7 @@ func (t *TruncatedLog) append(e LogEntry, cn uint64) uint64 {
 //
 // There's basically two separate proofs for this: one for when cn' == cn, and
 // one for when cn' < cn.
-func (t *TruncatedLog) tryAppend(a TruncatedLog) bool {
+func (t *TruncatedLog) tryAppend(a *TruncatedLog) bool {
 	if t.firstIndex > a.highestIndex() {
 		return false // tlog contains entries strictly after `entries`
 	}
@@ -95,6 +95,14 @@ func (t *TruncatedLog) clone() *TruncatedLog {
 	newlog := make([]LogEntryCn, len(t.log))
 	copy(newlog, t.log)
 	return &TruncatedLog{firstIndex:t.firstIndex, log:newlog}
+}
+
+func (t *TruncatedLog) suffix(index uint64) *TruncatedLog {
+	t2 := new(TruncatedLog)
+	t2.firstIndex = index
+	t2.log = make([]LogEntryCn, len(t.log))
+	copy(t2.log, t.log)
+	return t2
 }
 
 func MakeTruncatedLog() *TruncatedLog {

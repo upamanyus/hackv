@@ -1,5 +1,7 @@
 package pb
 
+// XXX: this file is currently unused
+
 import (
 	"sync"
 )
@@ -19,11 +21,18 @@ type LogID struct {
 
 func (s *PrimaryServer) TryAppend(e LogEntry) LogID {
 	index := s.tlog.append(e, s.cn)
-	for _, ck := range s.replicaClerks {
-		ck := ck
-		// FIXME: impl
+	for i, ck := range s.replicaClerks {
+		localCk := ck
+		localRid := uint64(i)
+		args := &AppendLogArgs{
+			Tlog:s.tlog.suffix(s.nextIndex[i]),
+			Cn:s.cn,
+		}
 		go func () {
-			ck.AppendLogOneSided(nil)
+			reply := new(AppendLogReply)
+			localCk.AppendLog(args, reply)
+			s.postAppendLog(localRid, reply)
+			// s.postAppendLog(localRid, reply)
 		}()
 	}
 	return LogID{index: index, cn: s.cn}
@@ -56,15 +65,13 @@ func MakePrimaryServer(tlog *TruncatedLog, conf *PBConfiguration) *PrimaryServer
 // witnesses, and a (Follower)LearnerServer that just finds out about ever
 // increasing commitIndex values.
 type LearnerServer struct {
-	cn            uint64
 	acceptedIndex []uint64
 	commitIndex   uint64
 	cond          *sync.Cond
 }
 
-func MakeLearnerServer(cn uint64, cond *sync.Cond) *LearnerServer {
+func MakeLearnerServer(cond *sync.Cond) *LearnerServer {
 	s := new(LearnerServer)
-	s.cn = cn
 	s.acceptedIndex = nil
 	s.commitIndex = 0
 	s.cond = cond

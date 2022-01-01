@@ -2,6 +2,7 @@ package pb
 
 import (
 	"github.com/mit-pdos/gokv/grove_ffi"
+	"github.com/upamanyus/hackv/urpc/rpc"
 	"sync"
 )
 
@@ -21,8 +22,14 @@ type ReplicaServer struct {
 	// With this, we're being conservative and it'll automatically become
 	// invalid when cn increases.
 
-	p *PrimaryServer
-	l *LearnerServer
+	commitIndex uint64
+	applyCond   *sync.Cond
+
+	isPrimary bool
+	// Primary state
+	replicaClerks []*ReplicaClerk
+	nextIndex     []uint64
+	acceptedIndex []uint64
 }
 
 func (s *ReplicaServer) TruncateLog(Index uint64) {
@@ -45,7 +52,7 @@ func (s *ReplicaServer) AppendLog(args *AppendLogArgs, reply *AppendLogReply) {
 
 	s.cn = args.Cn // might enter new conf *without* accepting anything
 
-	reply.Success = s.tlog.tryAppend(args.tlog)
+	reply.Success = s.tlog.tryAppend(args.Tlog)
 	if reply.Success {
 		s.acceptedCn = args.Cn
 	}
@@ -63,45 +70,88 @@ func (s *ReplicaServer) GetLogEntry(index uint64, e *LogEntry) Error {
 	s.mu.Lock()
 	defer s.mu.Lock()
 
-	for index > s.l.commitIndex && index >= s.tlog.firstIndex {
-		s.l.cond.Wait()
+	for index > s.commitIndex && index >= s.tlog.firstIndex {
+		s.applyCond.Wait()
 	}
 
 	if index < s.tlog.firstIndex {
 		return ETruncated
 	}
-	*e = s.tlog.lookupIndex(s.l.commitIndex).e
+	*e = s.tlog.lookupIndex(s.commitIndex).e
 	return ENone
 }
 
 func (s *ReplicaServer) TryAppend(e LogEntry) (Error, LogID) {
 	s.mu.Lock()
 	defer s.mu.Lock()
-	if s.p == nil {
+	if !s.isPrimary {
 		return ENotPrimary, LogID{}
+	}
+
+	index := s.tlog.append(e, s.cn)
+	for i, ck := range s.replicaClerks {
+		localCk := ck
+		localRid := uint64(i)
+		args := &AppendLogArgs{
+			Tlog: s.tlog.suffix(s.nextIndex[i]),
+			Cn:   s.cn,
+		}
+		go func() {
+			reply := new(AppendLogReply)
+			localCk.AppendLog(args, reply)
+			s.postAppendLog(localRid, reply)
+		}()
+	}
+
+	return ENone, LogID{index: index, cn: s.cn}
+}
+
+func (s *ReplicaServer) postAppendLog(rid uint64, reply *AppendLogReply) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !reply.Success {
+		s.nextIndex[rid] = reply.LastIndex
 	} else {
-		return ENone, s.p.TryAppend(e)
+		s.nextIndex[rid] = reply.LastIndex + 1
+		if reply.LastIndex > s.acceptedIndex[rid] {
+			s.acceptedIndex[rid] = reply.LastIndex
+			newCommitIndex := min(s.acceptedIndex)
+			if newCommitIndex > s.commitIndex {
+				s.commitIndex = newCommitIndex
+				s.applyCond.Signal()
+			}
+		}
 	}
 }
 
 func (s *ReplicaServer) UpdateCommitIndex(cn uint64, index uint64) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if cn <= s.acceptedCn {
-		if index > s.l.commitIndex {
-			s.l.commitIndex = index
+	if cn <= s.acceptedCn { // If we've accepeted past cn, then we have the same entries
+		if index > s.commitIndex {
+			s.commitIndex = index
 		}
 	}
 }
 
-func (s *ReplicaServer) BecomePrimary(conf *PBConfiguration) {
+func (s *ReplicaServer) BecomePrimary(args *BecomePrimaryArgs) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if s.cn >= conf.cn {
+	if s.cn >= args.Conf.cn {
 		return
 	}
-	s.p = MakePrimaryServer(s.tlog.clone(), conf)
-	s.l.MakePrimaryLearner(conf)
+
+	// init primary state
+	s.replicaClerks = make([]*ReplicaClerk, len(args.Conf.replicas)-1)
+	s.nextIndex = make([]uint64, len(args.Conf.replicas)-1)
+	s.acceptedIndex = make([]uint64, len(args.Conf.replicas))
+
+	s.acceptedIndex[0] = s.tlog.highestIndex()
+	for i, host := range args.Conf.replicas[1:] {
+		s.replicaClerks[i] = MakeReplicaClerk(host)
+		s.nextIndex[i] = s.tlog.highestIndex()
+		s.acceptedIndex[i] = 0
+	}
 }
 
 func MakeReplicaServer() *ReplicaServer {
@@ -109,11 +159,33 @@ func MakeReplicaServer() *ReplicaServer {
 	s.mu = new(sync.Mutex)
 	s.cn = 0
 	s.tlog = MakeTruncatedLog()
+	s.applyCond = sync.NewCond(s.mu)
 
-	s.p = nil
-	s.l = MakeLearnerServer(s.cn, sync.NewCond(s.mu))
 	return s
 }
 
-func (s *ReplicaServer) Start(h uint64) {
+func (s *ReplicaServer) Start(host grove_ffi.Address) {
+	handlers := make(map[uint64]func([]byte, *[]byte))
+	handlers[REPLICA_APPEND] = func(raw_args []byte, raw_reply *[]byte) {
+		args := new(AppendLogArgs)
+		reply := new(AppendLogReply)
+		DecodeAppendLogArgs(raw_args, args)
+		s.AppendLog(args, reply)
+		*raw_reply = EncodeAppendLogReply(reply)
+	}
+
+	handlers[REPLICA_UPDATECOMMIT] = func(raw_args []byte, raw_reply *[]byte) {
+		args := new(UpdateCommitIndexArgs)
+		DecodeUpdateCommitIndexArgs(raw_args, args)
+		s.UpdateCommitIndex(args.Cn, args.CommitIndex)
+		*raw_reply = nil
+	}
+
+	handlers[REPLICA_BECOMEPRIMARY] = func(raw_args []byte, raw_reply *[]byte) {
+		args := new(BecomePrimaryArgs)
+		DecodeBecomePrimaryArgs(raw_args, args)
+		s.BecomePrimary(args)
+		*raw_reply = nil
+	}
+	rpc.MakeRPCServer(handlers).Serve(host)
 }
