@@ -36,6 +36,7 @@ func (ks *RSMServer) applyThread() {
 		lid := pb.LogID{Index: ks.lastAppliedIndex + 1, Cn: le.Cn}
 
 		reply := ks.apply(le.E)
+		ks.lastAppliedIndex += 1
 		ks.mu.Lock()
 
 		// FIXME: want to wake up failed ops too
@@ -83,5 +84,6 @@ func MakeRSMServer(apply func([]byte) []byte) *RSMServer {
 }
 
 func (s *RSMServer) Start(h grove_ffi.Address) {
+	go s.applyThread()
 	s.r.Start(h)
 }

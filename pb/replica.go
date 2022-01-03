@@ -4,6 +4,7 @@ import (
 	"github.com/mit-pdos/gokv/grove_ffi"
 	"github.com/upamanyus/hackv/urpc/rpc"
 	"sync"
+	"log"
 )
 
 type PBConfiguration struct {
@@ -68,7 +69,7 @@ const (
 
 func (s *ReplicaServer) GetLogEntry(index uint64, e *LogEntryCn) Error {
 	s.mu.Lock()
-	defer s.mu.Lock()
+	defer s.mu.Unlock()
 
 	for index > s.commitIndex && index >= s.tlog.firstIndex {
 		s.applyCond.Wait()
@@ -89,6 +90,18 @@ func (s *ReplicaServer) TryAppend(e LogEntry) (Error, LogID) {
 	}
 
 	index := s.tlog.append(e, s.cn)
+
+	// Learner.postAppendLog(0, index)
+	s.acceptedIndex[0] = index
+
+	newCommitIndex := min(s.acceptedIndex)
+	if newCommitIndex > s.commitIndex {
+		s.commitIndex = newCommitIndex
+		log.Printf("%d", s.commitIndex)
+		s.applyCond.Signal()
+	}
+	//
+
 	for i, ck := range s.replicaClerks {
 		localCk := ck
 		localRid := uint64(i)
