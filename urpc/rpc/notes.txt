@@ -4,3 +4,19 @@ TODOs:
 * Client decides if RPC runs in separate goroutine?
 * RPC Batching: send multiple RPCs to a destination with a single write syscall
   Will make a difference for AppendLog+UpdateCommitIndex, etc.
+
+func OneWayExampleRPC(ctx *Context, args []byte) {
+     // do whatever with args
+     ctx.rpcBack(blah)
+}
+
+Explicit batching:
+func ExampleBundledRPCs() {
+     reqBatch := cl.Start()
+     reqBatch.CallOneWay()
+     reqBatch.Call()
+     reqBatch.Finish()
+}
+
+Automatic batching:
+Batch all RPCs that clients invoke while one is being sent into a next invocation.

@@ -41,6 +41,12 @@ func (t *TruncatedLog) subseqTo(index uint64) []LogEntryCn {
 }
 
 func (t *TruncatedLog) truncate(index uint64) {
+	if index <= t.firstIndex {
+		return
+	}
+	if index >= t.highestIndex() {
+		index = t.highestIndex()
+	}
 	t.log = t.tailFrom(index)
 	t.firstIndex = index
 }

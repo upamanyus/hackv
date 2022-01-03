@@ -1,0 +1,21 @@
+Start with r.TryAppend(op)
+Then, wait for the applyThread to apply that operation (or for something to
+happen indicating that the operation won't happen).
+That means the main thread for handling that RPC will have to sleep for a while.
+If the operation doesn't end up being committed, then will have to wake up and
+tell the client to retry.
+
+Maybe having RPC continuations will help.
+
+================================================================================
+Lost wakeup in KV RPC handler:
+If we try to avoid (ever) holding both locks at the same time, we could do
+1. call TryAppend which has r.mu.Lock().
+2. THEN lock kv state, and register a callback
+
+The problem is that between TryAppend completing and kv.mu.Lock() succeeding,
+the operation could actually be applied. This is "unlikely" given a slow
+network, and given that ks.mu is held for very short times.
+
+Instead, we should just hold ks.mu across the invocation of TryAppend.
+This forces upon us the locking order: ks.mu locked before ks.r.mu.

@@ -66,7 +66,7 @@ const (
 	ENotPrimary = uint64(2)
 )
 
-func (s *ReplicaServer) GetLogEntry(index uint64, e *LogEntry) Error {
+func (s *ReplicaServer) GetLogEntry(index uint64, e *LogEntryCn) Error {
 	s.mu.Lock()
 	defer s.mu.Lock()
 
@@ -77,7 +77,7 @@ func (s *ReplicaServer) GetLogEntry(index uint64, e *LogEntry) Error {
 	if index < s.tlog.firstIndex {
 		return ETruncated
 	}
-	*e = s.tlog.lookupIndex(s.commitIndex).e
+	*e = s.tlog.lookupIndex(s.commitIndex)
 	return ENone
 }
 

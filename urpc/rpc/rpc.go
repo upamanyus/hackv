@@ -197,3 +197,5 @@ func (cl *RPCClient) Call(rpcid uint64, args []byte, reply *[]byte, timeout_ms u
 		}
 	}
 }
+
+// FIXME: add RPCClient.Close() or some such to free up resources

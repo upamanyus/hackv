@@ -121,3 +121,36 @@ Gave up on trying to write code with Primary/Learner abstractions for now.
     actually uses the do_commit lemma and updates its own commitIndex.
 * Would probably want pointers between all the different things. In a disaggregated
   implementation, learner would have to talk to replicas, etc.
+================================================================================
+What if we want to save log on disk so the system can recover even if all the machines crash?
+
+Could add a "durable" flag that gets passed into pb and enables some code to
+write stuff to disk. But that would commit the pb library to that particular way
+of making stuff durable.
+
+Another idea: the pb library can take a callback that it calls whenever it
+updates a replica's state.
+Then, implement the durability separate from pb library.
+
+Will need a nice spec to make this work.
+================================================================================
+Performance hypotheses:
+Thruput: without batching, will be pretty bad. Limited by the # of (no-op) RPCs
+that are doable per second. B/c of networking overhead, this won't be a lot.
+Adding the actual work done will make this only worse.
+
+With batching:
+B = batch size.
+Time for processing (replicating+applying) batch:
+T(B) = T(0) + O(B) network delay + O(B) local proc time
+
+As a test, will see if T(B) is linear in B. Will have to be careful to either
+ignore or add to analysis the time it takes to gather a batch of B client ops.
+================================================================================
+Consider the process of adding a new KV replica server.
+We do state transfer to get kv's state up to some point. But, kv.r.tlog still
+has the single dummy entry (0,0). How do we get its first log entry in place so
+that we can start appending new things?
+
+Plan for now: Add a ReplicaServer.resetLog(entry, index, cn) function. Takes in
+an entry that's definitely committed and resets the log.
