@@ -83,7 +83,7 @@ func (s *ReplicaServer) GetLogEntry(index uint64, e *LogEntryCn) Error {
 
 func (s *ReplicaServer) TryAppend(e LogEntry) (Error, LogID) {
 	s.mu.Lock()
-	defer s.mu.Lock()
+	defer s.mu.Unlock()
 	if !s.isPrimary {
 		return ENotPrimary, LogID{}
 	}
@@ -145,6 +145,7 @@ func (s *ReplicaServer) BecomePrimary(args *BecomePrimaryArgs) {
 	s.replicaClerks = make([]*ReplicaClerk, len(args.Conf.replicas)-1)
 	s.nextIndex = make([]uint64, len(args.Conf.replicas)-1)
 	s.acceptedIndex = make([]uint64, len(args.Conf.replicas))
+	s.isPrimary = true
 
 	s.acceptedIndex[0] = s.tlog.highestIndex()
 	for i, host := range args.Conf.replicas[1:] {
@@ -160,6 +161,17 @@ func MakeReplicaServer() *ReplicaServer {
 	s.cn = 0
 	s.tlog = MakeTruncatedLog()
 	s.applyCond = sync.NewCond(s.mu)
+	s.isPrimary = false
+
+	// FIXME: this is here temporarily to allow for basic testing without
+	// pbcontroller
+	args := &BecomePrimaryArgs{
+		Conf: PBConfiguration{
+			cn:       1,
+			replicas: []grove_ffi.Address{grove_ffi.Address(0)}, // the first addr is ignored by the primary
+		},
+	}
+	s.BecomePrimary(args)
 
 	return s
 }

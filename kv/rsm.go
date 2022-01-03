@@ -1,6 +1,7 @@
 package kv
 
 import (
+	"github.com/mit-pdos/gokv/grove_ffi"
 	"github.com/upamanyus/hackv/pb"
 	"sync"
 )
@@ -20,7 +21,7 @@ type RSMServer struct {
 	// FIXME: should use async RPC interface
 	callbacks map[pb.LogID]*Callback
 
-	apply func([]byte)[]byte
+	apply func([]byte) []byte
 }
 
 type Error = uint64
@@ -32,24 +33,25 @@ func (ks *RSMServer) applyThread() {
 		if err != pb.ENone {
 			continue
 		}
-		lid := pb.LogID{Index:ks.lastAppliedIndex+1, Cn:le.Cn}
+		lid := pb.LogID{Index: ks.lastAppliedIndex + 1, Cn: le.Cn}
 
 		reply := ks.apply(le.E)
 		ks.mu.Lock()
 
 		// FIXME: want to wake up failed ops too
 
-		if c, ok := ks.callbacks[lid]; ok {
-			c.reply = reply
-			c.cond.Signal()
+		if cb, ok := ks.callbacks[lid]; ok {
+			cb.complete = true
+			cb.reply = reply
+			cb.cond.Signal()
 		}
 		ks.mu.Unlock()
-		// le.CN
 	}
 }
 
 func (ks *RSMServer) Op(op []byte) (Error, []byte) {
 	ks.mu.Lock()
+	defer ks.mu.Unlock()
 	err, lid := ks.r.TryAppend(op)
 	if err != pb.ENone {
 		return err, nil
@@ -65,14 +67,21 @@ func (ks *RSMServer) Op(op []byte) (Error, []byte) {
 		cb.cond.Wait()
 	}
 
-	ks.mu.Unlock()
 	return pb.ENone, cb.reply
 }
 
-func MakeRSMServer() {
-	// FIXME: impl
+func MakeRSMServer(apply func([]byte) []byte) *RSMServer {
+	s := new(RSMServer)
+	s.mu = new(sync.Mutex)
+	s.r = pb.MakeReplicaServer()
+
+	s.lastAppliedIndex = 0
+
+	s.callbacks = make(map[pb.LogID]*Callback)
+	s.apply = apply
+	return s
 }
 
-func (s *RSMServer) Start(h uint64) {
-	// FIXME: impl
+func (s *RSMServer) Start(h grove_ffi.Address) {
+	s.r.Start(h)
 }

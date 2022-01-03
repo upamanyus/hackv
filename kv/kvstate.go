@@ -34,3 +34,9 @@ func (s *KVState) apply(op []byte)[]byte {
 	}
 	return nil
 }
+
+func MakeKVState() *KVState {
+	k := new(KVState)
+	k.kvs = make(map[string][]byte)
+	return k
+}

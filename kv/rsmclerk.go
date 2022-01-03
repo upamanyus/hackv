@@ -4,6 +4,7 @@ import (
 	"github.com/mit-pdos/gokv/grove_ffi"
 	"github.com/tchajed/marshal"
 	"github.com/upamanyus/hackv/urpc/rpc"
+	"log"
 )
 
 type RSMClerk struct {
@@ -16,7 +17,10 @@ const (
 
 func (ck *RSMClerk) Operation(args []byte) (Error, []byte) {
 	raw_reply := new([]byte)
-	ck.cl.Call(RSM_OPERATION, args, raw_reply, 100 /* ms */)
+	err := ck.cl.Call(RSM_OPERATION, args, raw_reply, 1000 /* ms */)
+	if err != 0 {
+		log.Fatalf("Timed out/disconnected RPCClient")
+	}
 	return UnmarshalOpReply(*raw_reply)
 }
 

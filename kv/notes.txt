@@ -19,3 +19,20 @@ network, and given that ks.mu is held for very short times.
 
 Instead, we should just hold ks.mu across the invocation of TryAppend.
 This forces upon us the locking order: ks.mu locked before ks.r.mu.
+================================================================================
+Should replica server and KV server have different ports?
+
+Option a: PB replica server and the KV server that clients talk to have different (IP,port)s.
+The top-level "start" function would have to take both of these port numbers as input.
+Option b: They share the port number, but have disjoint RPC ids.
+The latter would require either dynamically changing the handlers map, or would
+require explicitly making a handlers map that has both the PB and the RSM/KV
+RPCs in them.
+
+For now, going with (a) unless/until doling out port numbers becomes too much of
+a hassle.
+================================================================================
+The separation between KV and RSM is messy right now.
+Want more clarity; e.g. the RSM server should be the one running the RPC server.
+Maybe get rid of KVServer entirely, and treat it as initializing a RSMServer
+with the KV apply function for some copy of KVState.

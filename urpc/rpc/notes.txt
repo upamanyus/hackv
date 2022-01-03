@@ -20,3 +20,8 @@ func ExampleBundledRPCs() {
 
 Automatic batching:
 Batch all RPCs that clients invoke while one is being sent into a next invocation.
+
+
+Want better error handling.
+E.g. something got disconnected while in replicated kv, and I have no idea why.
+E.g. did a Send() fail, did a Receive() give an error, etc.
