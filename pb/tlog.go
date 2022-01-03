@@ -1,8 +1,8 @@
 package pb
 
 type LogEntryCn struct {
-	e  LogEntry
-	cn uint64
+	E  LogEntry
+	Cn uint64
 }
 
 type TruncatedLog struct {
@@ -52,7 +52,7 @@ func (t *TruncatedLog) truncate(index uint64) {
 }
 
 func (t *TruncatedLog) append(e LogEntry, cn uint64) uint64 {
-	t.log = append(t.log, LogEntryCn{e:e, cn:cn})
+	t.log = append(t.log, LogEntryCn{E:e, Cn:cn})
 	return t.firstIndex + uint64(len(t.log)) - 1
 }
 
@@ -78,7 +78,7 @@ func (t *TruncatedLog) tryAppend(a *TruncatedLog) bool {
 	// lowest index that they both contain matches
 	indexToCheck := max(t.firstIndex, a.firstIndex)
 
-	if a.lookupIndex(indexToCheck).cn != t.lookupIndex(indexToCheck).cn {
+	if a.lookupIndex(indexToCheck).Cn != t.lookupIndex(indexToCheck).Cn {
 		return false // didn't match
 	}
 
@@ -89,7 +89,7 @@ func (t *TruncatedLog) tryAppend(a *TruncatedLog) bool {
 			// `entries` has more log entries than t.log
 			t.log = append(t.log, t.tailFrom(j)...)
 		}
-		if t.lookupIndex(j).cn != t.lookupIndex(j).cn {
+		if t.lookupIndex(j).Cn != t.lookupIndex(j).Cn {
 			// overwrite t.log
 			t.log = append(t.subseqTo(j), a.tailFrom(j)...)
 		}
@@ -115,6 +115,6 @@ func MakeTruncatedLog() *TruncatedLog {
 	t := new(TruncatedLog)
 	t.firstIndex = 0
 	t.log = make([]LogEntryCn, 1)
-	t.log[0] = LogEntryCn{e:nil, cn:0}
+	t.log[0] = LogEntryCn{E:nil, Cn:0}
 	return t
 }

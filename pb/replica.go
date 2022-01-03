@@ -103,7 +103,7 @@ func (s *ReplicaServer) TryAppend(e LogEntry) (Error, LogID) {
 		}()
 	}
 
-	return ENone, LogID{index: index, cn: s.cn}
+	return ENone, LogID{Index: index, Cn: s.cn}
 }
 
 func (s *ReplicaServer) postAppendLog(rid uint64, reply *AppendLogReply) {

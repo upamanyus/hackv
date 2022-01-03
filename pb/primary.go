@@ -15,8 +15,8 @@ type PrimaryServer struct {
 }
 
 type LogID struct {
-	index uint64
-	cn    uint64
+	Index uint64
+	Cn    uint64
 }
 
 func (s *PrimaryServer) TryAppend(e LogEntry) LogID {
@@ -35,7 +35,7 @@ func (s *PrimaryServer) TryAppend(e LogEntry) LogID {
 			// s.postAppendLog(localRid, reply)
 		}()
 	}
-	return LogID{index: index, cn: s.cn}
+	return LogID{Index: index, Cn: s.cn}
 }
 
 func (s *PrimaryServer) postAppendLog(rid uint64, r *AppendLogReply) {
