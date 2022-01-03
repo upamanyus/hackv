@@ -7,16 +7,10 @@ import (
 type KVServer struct {
 	mu *sync.Mutex
 	r  *RSMServer
+	k *KVState
 }
 
-func (ks *KVServer) PutRPC(args []byte, reply []byte) {
-
+func (ks *KVServer) OperationRPC(args []byte, reply *[]byte) {
+	err, val := ks.r.Op(args)
+	*reply = MarshalOpReply(err, val)
 }
-
-func (ks *KVServer) GetRPC(key []byte, reply []byte) {
-
-}
-
-// Should we even bother making them separate RPCs?
-// What about a single type of RPC called "Operation"?
-// Don't want to marshal/unmarshal back and forth.

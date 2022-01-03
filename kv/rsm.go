@@ -68,3 +68,11 @@ func (ks *RSMServer) Op(op []byte) (Error, []byte) {
 	ks.mu.Unlock()
 	return pb.ENone, cb.reply
 }
+
+func MakeRSMServer() {
+	// FIXME: impl
+}
+
+func (s *RSMServer) Start(h uint64) {
+	// FIXME: impl
+}
